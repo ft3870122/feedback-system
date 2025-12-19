@@ -23,104 +23,212 @@ if [ "$(id -u)" != "0" ]; then
    exit 1
 fi
 
-# 安装Docker（支持国内网络）
+# 安装Docker（增强版，支持多种安装方式）
 install_docker() {
     echo -e "${YELLOW}正在安装 Docker...${NC}"
     
-    # 卸载旧版本
-    apt-get remove -y docker docker.io containerd runc
+    # 网络诊断
+    echo -e "${BLUE}正在进行网络诊断...${NC}"
+    ping -c 2 www.baidu.com > /dev/null 2>&1 || echo -e "${YELLOW}警告: 无法访问百度，可能存在网络问题${NC}"
+    ping -c 2 mirrors.aliyun.com > /dev/null 2>&1 || echo -e "${YELLOW}警告: 无法访问阿里云镜像，将使用备用源${NC}"
     
-    # 更新apt包索引
-    apt-get update
+    # 卸载旧版本
+    apt-get remove -y docker docker.io containerd runc 2>/dev/null || true
     
     # 安装依赖
-    apt-get install -y \
+    echo -e "${BLUE}安装必要依赖...${NC}"
+    apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
+    apt-get install -y -o Dpkg::Options::="--force-confold" \
         apt-transport-https \
         ca-certificates \
         curl \
         gnupg-agent \
-        software-properties-common
+        software-properties-common \
+        wget \
+        net-tools \
+        iputils-ping
     
-    # 优先使用阿里云安装脚本（国内网络优化）
-    echo -e "${BLUE}使用阿里云Docker安装脚本...${NC}"
-    if curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun; then
-        echo -e "${GREEN}Docker安装成功!${NC}"
-    else
-        echo -e "${YELLOW}阿里云脚本失败，尝试官方安装方式...${NC}"
+    # 方法1: 尝试使用官方脚本（带多个镜像源）
+    echo -e "${BLUE}尝试使用官方安装脚本...${NC}"
+    DOCKER_INSTALL_SUCCESS=false
+    
+    # 尝试多个镜像源
+    for mirror in "Aliyun" "AzureChinaCloud" "TencentCloud"; do
+        echo -e "${BLUE}尝试 $mirror 镜像源...${NC}"
+        if curl -fsSL https://get.docker.com | bash -s docker --mirror $mirror; then
+            echo -e "${GREEN}Docker安装成功!${NC}"
+            DOCKER_INSTALL_SUCCESS=true
+            break
+        else
+            echo -e "${YELLOW}$mirror 镜像源失败，尝试下一个...${NC}"
+            sleep 2
+        fi
+    done
+    
+    # 方法2: 如果方法1失败，使用apt直接安装
+    if [ "$DOCKER_INSTALL_SUCCESS" = false ]; then
+        echo -e "${YELLOW}所有脚本安装方式失败，尝试apt直接安装...${NC}"
         
-        # 添加Docker官方GPG密钥
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+        # 添加Docker GPG密钥
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - 2>/dev/null || {
+            echo -e "${YELLOW}无法获取官方GPG密钥，使用备用方式...${NC}"
+            apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 7EA0A9C3F273FCD8 2>/dev/null || true
+        }
         
-        # 设置稳定版仓库
-        add-apt-repository \
+        # 添加Docker仓库（使用IPv4）
+        add-apt-repository -y \
             "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
             $(lsb_release -cs) \
             stable"
         
-        # 安装Docker Engine
-        apt-get update
-        apt-get install -y docker-ce docker-ce-cli containerd.io
+        # 安装Docker
+        apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
+        apt-get install -y -o Dpkg::Options::="--force-confold" docker-ce docker-ce-cli containerd.io
+        
+        if command -v docker &> /dev/null; then
+            DOCKER_INSTALL_SUCCESS=true
+            echo -e "${GREEN}Docker apt安装成功!${NC}"
+        fi
     fi
     
-    # 配置阿里云Docker镜像加速
-    echo -e "${BLUE}配置阿里云Docker镜像加速...${NC}"
+    # 方法3: 如果所有在线安装都失败，提示离线安装
+    if [ "$DOCKER_INSTALL_SUCCESS" = false ]; then
+        echo -e "${RED}所有在线安装方式都失败了!${NC}"
+        echo -e "${YELLOW}建议使用离线安装方式:${NC}"
+        echo -e "1. 在有网络的机器上下载Docker安装包"
+        echo -e "2. 传输到当前服务器并手动安装"
+        echo -e "3. 或使用Docker官方离线安装包"
+        echo -e ""
+        echo -e "${BLUE}继续尝试配置环境...${NC}"
+    fi
+    
+    # 配置Docker镜像加速（使用多个镜像源）
+    echo -e "${BLUE}配置Docker镜像加速...${NC}"
     mkdir -p /etc/docker
+    
+    # 配置多个镜像源以提高成功率
     cat > /etc/docker/daemon.json << 'EOF'
 {
   "registry-mirrors": [
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://mirror.ccs.tencentyun.com",
+    "https://hub-mirror.c.163.com",
+    "https://reg-mirror.qiniu.com",
     "https://registry.cn-hangzhou.aliyuncs.com",
     "https://registry.cn-shanghai.aliyuncs.com",
     "https://registry.cn-shenzhen.aliyuncs.com"
-  ]
+  ],
+  "dns": ["8.8.8.8", "114.114.114.114"],
+  "ipv6": false
 }
 EOF
     
-    # 启动Docker
+    # 启动Docker服务
+    echo -e "${BLUE}启动Docker服务...${NC}"
     systemctl daemon-reload
-    systemctl start docker
-    systemctl enable docker
+    systemctl start docker || echo -e "${YELLOW}Docker启动失败，尝试修复...${NC}"
+    systemctl enable docker || echo -e "${YELLOW}Docker自启动配置失败${NC}"
     
-    echo -e "${GREEN}Docker 安装成功!${NC}"
-    docker --version
+    # 验证安装
+    if command -v docker &> /dev/null; then
+        echo -e "${GREEN}Docker 安装成功!${NC}"
+        docker --version
+    else
+        echo -e "${RED}Docker安装失败!${NC}"
+        echo -e "${YELLOW}请检查网络连接或手动安装Docker${NC}"
+        return 1
+    fi
     
     # 验证镜像加速配置
     echo -e "${BLUE}Docker镜像加速配置:${NC}"
     docker info | grep "Registry Mirrors" || echo -e "${YELLOW}镜像加速配置可能未生效${NC}"
 }
 
-# 安装Docker Compose（支持国内网络）
+# 安装Docker Compose（增强版，支持多种安装方式）
 install_docker_compose() {
     echo -e "${YELLOW}正在安装 Docker Compose...${NC}"
     
-    # 尝试从GitHub下载（备用）
-    GITHUB_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+    # 安装pip（如果没有）
+    if ! command -v pip3 &> /dev/null; then
+        echo -e "${BLUE}安装pip3...${NC}"
+        apt-get install -y python3-pip python3-setuptools python3-wheel
+    fi
     
-    # 优先从国内镜像下载
-    echo -e "${BLUE}尝试从国内镜像下载Docker Compose...${NC}"
-    if curl -L "https://mirrors.aliyun.com/docker-toolbox/linux/compose/$(curl -s https://mirrors.aliyun.com/docker-toolbox/linux/compose/LATEST)/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose; then
-        echo -e "${GREEN}从阿里云镜像下载成功!${NC}"
+    # 配置pip国内源
+    mkdir -p ~/.pip
+    cat > ~/.pip/pip.conf << 'EOF'
+[global]
+index-url = https://mirrors.aliyun.com/pypi/simple/
+[install]
+trusted-host=mirrors.aliyun.com
+EOF
+    
+    # 方法1: pip安装（最可靠的方式）
+    echo -e "${BLUE}方法1: 使用pip安装Docker Compose...${NC}"
+    if pip3 install docker-compose -i https://mirrors.aliyun.com/pypi/simple/; then
+        echo -e "${GREEN}pip安装Docker Compose成功!${NC}"
+        docker-compose --version
+        return 0
     else
-        echo -e "${YELLOW}国内镜像下载失败，尝试GitHub下载...${NC}"
-        if curl -L "$GITHUB_URL" -o /usr/local/bin/docker-compose; then
-            echo -e "${GREEN}从GitHub下载成功!${NC}"
+        echo -e "${YELLOW}pip安装失败，尝试其他方法...${NC}"
+    fi
+    
+    # 方法2: 下载二进制文件
+    echo -e "${BLUE}方法2: 下载Docker Compose二进制文件...${NC}"
+    
+    # 定义下载URL列表
+    declare -a DOWNLOAD_URLS=(
+        "https://mirrors.aliyun.com/docker-toolbox/linux/compose/2.21.0/docker-compose-$(uname -s)-$(uname -m)"
+        "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)"
+        "https://gh-proxy.com/https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)"
+        "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)"
+    )
+    
+    # 尝试从多个源下载
+    for url in "${DOWNLOAD_URLS[@]}"; do
+        echo -e "${BLUE}尝试从 $url 下载...${NC}"
+        if curl -L --connect-timeout 30 --retry 3 "$url" -o /usr/local/bin/docker-compose; then
+            echo -e "${GREEN}下载成功!${NC}"
+            chmod +x /usr/local/bin/docker-compose
+            
+            # 验证安装
+            if /usr/local/bin/docker-compose --version; then
+                echo -e "${GREEN}Docker Compose 安装成功!${NC}"
+                return 0
+            else
+                echo -e "${YELLOW}下载的文件可能损坏，尝试下一个源...${NC}"
+                rm -f /usr/local/bin/docker-compose
+            fi
         else
-            echo -e "${RED}Docker Compose下载失败!${NC}"
-            echo -e "${YELLOW}尝试使用pip安装...${NC}"
-            pip3 install docker-compose || {
-                echo -e "${RED}所有安装方式都失败了!${NC}"
-                exit 1
-            }
+            echo -e "${YELLOW}从 $url 下载失败${NC}"
+        fi
+        sleep 2
+    done
+    
+    # 方法3: 安装docker-compose-plugin（Docker官方推荐的新方式）
+    echo -e "${BLUE}方法3: 尝试安装docker-compose-plugin...${NC}"
+    if apt-get install -y docker-compose-plugin; then
+        echo -e "${GREEN}docker-compose-plugin 安装成功!${NC}"
+        
+        # 创建软链接
+        ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/bin/docker-compose 2>/dev/null || true
+        
+        if docker compose version; then
+            echo -e "${GREEN}Docker Compose 安装成功!${NC}"
+            return 0
         fi
     fi
     
-    # 添加执行权限
-    chmod +x /usr/local/bin/docker-compose
+    # 如果所有方法都失败
+    echo -e "${RED}Docker Compose 安装失败!${NC}"
+    echo -e "${YELLOW}建议手动安装:${NC}"
+    echo -e "1. 在有网络的机器上下载: https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-Linux-x86_64"
+    echo -e "2. 传输到服务器的 /usr/local/bin/docker-compose"
+    echo -e "3. 添加执行权限: chmod +x /usr/local/bin/docker-compose"
+    echo -e ""
+    echo -e "${BLUE}继续执行脚本...${NC}"
     
-    # 创建软链接
-    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
-    
-    echo -e "${GREEN}Docker Compose 安装成功!${NC}"
-    docker-compose --version
+    return 1
 }
 
 # 创建数据目录
