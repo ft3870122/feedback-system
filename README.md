@@ -82,32 +82,43 @@ trusted-host=mirrors.aliyun.com
 EOF
 ```
 
-**步骤3: 配置apt阿里云源**
+**步骤3: 配置apt阿里云源（修复IPv6问题）**
 ```bash
 # 备份原有源文件
 cp /etc/apt/sources.list /etc/apt/sources.list.bak
 
-# 配置阿里云apt源
+# 禁用IPv6（解决连接问题）
+echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
+echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
+sysctl -p
+
+# 配置阿里云apt源（使用IPv4地址）
 cat > /etc/apt/sources.list << 'EOF'
-deb http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse
-deb-src http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse
+# 默认注释了源码镜像以提高 apt update 速度，如有需要可自行取消注释
+deb [arch=amd64] http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse
+# deb-src http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse
 
-deb http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse
-deb-src http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse
+deb [arch=amd64] http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse
+# deb-src http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse
 
-deb http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse
-deb-src http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse
+deb [arch=amd64] http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse
+# deb-src http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse
 
-deb http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse
-deb-src http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse
+deb [arch=amd64] http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse
+# deb-src http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse
 
-deb http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse
-deb-src http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse
+# 预发布软件源，不建议启用
+# deb [arch=amd64] http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse
+# deb-src http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse
 EOF
 
-# 更新apt缓存
+# 配置DNS（使用公共DNS）
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 114.114.114.114" >> /etc/resolv.conf
+
+# 更新apt缓存（添加超时和重试参数）
 apt-get clean
-apt-get update
+apt-get -o Acquire::http::Timeout=30 -o Acquire::Retries=3 update
 ```
 
 #### 2.4 克隆项目代码
@@ -123,18 +134,35 @@ cd feedback-system
 chmod +x deploy.sh
 
 # 执行部署脚本（选择选项2仅安装Docker和Docker Compose）
-# 优化后的脚本会自动配置阿里云镜像加速
+# 优化后的脚本会自动配置多镜像源和错误处理
 echo "2" | ./deploy.sh
 ```
 
 **等待Docker安装完成后，继续执行以下步骤**
 
 **注意：优化后的deploy.sh脚本已经包含以下功能：**
-- ✅ 自动配置阿里云Docker镜像加速
-- ✅ 支持多种Docker Compose安装方式
-- ✅ 自动检测并使用国内镜像配置文件
-- ✅ 预拉取基础Docker镜像
-- ✅ 更友好的错误处理和用户提示
+- ✅ 自动网络诊断和多镜像源尝试
+- ✅ 支持阿里云、腾讯云、Azure等多个镜像源
+- ✅ 提供3种Docker安装方式和3种Docker Compose安装方式
+- ✅ 自动配置多镜像源加速（包含中科大、腾讯云、网易等）
+- ✅ 增强的错误处理和离线安装建议
+- ✅ 自动禁用IPv6和配置DNS
+
+#### 2.5.1 验证Docker安装（可选）
+```bash
+# 给测试脚本添加执行权限
+chmod +x test_docker_install.sh
+
+# 运行Docker安装验证
+./test_docker_install.sh
+```
+
+**测试脚本会自动检查：**
+- ✅ 网络连接和DNS解析
+- ✅ Docker和Docker Compose安装状态
+- ✅ Docker服务运行状态
+- ✅ 镜像加速配置
+- ✅ 镜像拉取和容器运行功能
 
 #### 2.6 预拉取基础Docker镜像（国内优化）
 ```bash

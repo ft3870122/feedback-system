@@ -144,9 +144,13 @@ EOF
     docker info | grep "Registry Mirrors" || echo -e "${YELLOW}镜像加速配置可能未生效${NC}"
 }
 
-# 安装Docker Compose（增强版，支持多种安装方式）
+# 安装Docker Compose（增强版，修复权限问题）
 install_docker_compose() {
     echo -e "${YELLOW}正在安装 Docker Compose...${NC}"
+    
+    # 清理可能存在的损坏文件
+    echo -e "${BLUE}清理可能存在的损坏文件...${NC}"
+    rm -f /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
     
     # 安装pip（如果没有）
     if ! command -v pip3 &> /dev/null; then
@@ -167,37 +171,59 @@ EOF
     echo -e "${BLUE}方法1: 使用pip安装Docker Compose...${NC}"
     if pip3 install docker-compose -i https://mirrors.aliyun.com/pypi/simple/; then
         echo -e "${GREEN}pip安装Docker Compose成功!${NC}"
-        docker-compose --version
-        return 0
+        
+        # 确保pip安装的可执行文件在PATH中
+        PIP_BIN_PATH=$(pip3 show docker-compose | grep Location | awk '{print $2}')/bin
+        if [ -f "$PIP_BIN_PATH/docker-compose" ]; then
+            ln -sf "$PIP_BIN_PATH/docker-compose" /usr/bin/docker-compose 2>/dev/null || true
+            chmod +x "$PIP_BIN_PATH/docker-compose"
+        fi
+        
+        if command -v docker-compose &> /dev/null; then
+            docker-compose --version
+            return 0
+        fi
     else
         echo -e "${YELLOW}pip安装失败，尝试其他方法...${NC}"
     fi
     
-    # 方法2: 下载二进制文件
+    # 方法2: 下载二进制文件（修复权限问题）
     echo -e "${BLUE}方法2: 下载Docker Compose二进制文件...${NC}"
     
     # 定义下载URL列表
     declare -a DOWNLOAD_URLS=(
-        "https://mirrors.aliyun.com/docker-toolbox/linux/compose/2.21.0/docker-compose-$(uname -s)-$(uname -m)"
-        "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)"
-        "https://gh-proxy.com/https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)"
-        "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)"
+        "https://mirrors.aliyun.com/docker-toolbox/linux/compose/2.21.0/docker-compose-Linux-x86_64"
+        "https://mirror.ghproxy.com/https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-Linux-x86_64"
+        "https://gh-proxy.com/https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-Linux-x86_64"
+        "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-Linux-x86_64"
     )
     
     # 尝试从多个源下载
     for url in "${DOWNLOAD_URLS[@]}"; do
         echo -e "${BLUE}尝试从 $url 下载...${NC}"
-        if curl -L --connect-timeout 30 --retry 3 "$url" -o /usr/local/bin/docker-compose; then
+        
+        # 先下载到临时目录，避免权限问题
+        if curl -L --connect-timeout 30 --retry 3 "$url" -o /tmp/docker-compose; then
             echo -e "${GREEN}下载成功!${NC}"
-            chmod +x /usr/local/bin/docker-compose
+            
+            # 修复权限并移动文件
+            chmod 755 /tmp/docker-compose
+            mv -f /tmp/docker-compose /usr/local/bin/docker-compose
+            
+            # 确保权限正确
+            chmod 755 /usr/local/bin/docker-compose
+            
+            # 创建软链接
+            ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
             
             # 验证安装
-            if /usr/local/bin/docker-compose --version; then
+            if command -v docker-compose &> /dev/null; then
                 echo -e "${GREEN}Docker Compose 安装成功!${NC}"
+                docker-compose --version
                 return 0
             else
-                echo -e "${YELLOW}下载的文件可能损坏，尝试下一个源...${NC}"
-                rm -f /usr/local/bin/docker-compose
+                echo -e "${YELLOW}无法找到docker-compose命令，尝试下一个源...${NC}"
+                rm -f /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
             fi
         else
             echo -e "${YELLOW}从 $url 下载失败${NC}"
@@ -210,21 +236,46 @@ EOF
     if apt-get install -y docker-compose-plugin; then
         echo -e "${GREEN}docker-compose-plugin 安装成功!${NC}"
         
-        # 创建软链接
-        ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/bin/docker-compose 2>/dev/null || true
+        # 创建软链接（修复权限）
+        if [ -f "/usr/libexec/docker/cli-plugins/docker-compose" ]; then
+            chmod 755 /usr/libexec/docker/cli-plugins/docker-compose
+            ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/bin/docker-compose 2>/dev/null || true
+            chmod 755 /usr/bin/docker-compose 2>/dev/null || true
+        fi
         
-        if docker compose version; then
+        if docker compose version &> /dev/null; then
+            echo -e "${GREEN}Docker Compose Plugin 安装成功!${NC}"
+            return 0
+        fi
+    fi
+    
+    # 方法4: 直接复制内置的docker-compose文件（离线备用）
+    echo -e "${BLUE}方法4: 检查是否有内置的docker-compose文件...${NC}"
+    if [ -f "./docker-compose-linux-x86_64" ]; then
+        echo -e "${GREEN}找到内置的docker-compose文件!${NC}"
+        cp -f ./docker-compose-linux-x86_64 /usr/local/bin/docker-compose
+        chmod 755 /usr/local/bin/docker-compose
+        ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
+        
+        if command -v docker-compose &> /dev/null; then
             echo -e "${GREEN}Docker Compose 安装成功!${NC}"
+            docker-compose --version
             return 0
         fi
     fi
     
     # 如果所有方法都失败
     echo -e "${RED}Docker Compose 安装失败!${NC}"
+    echo -e "${YELLOW}错误分析:${NC}"
+    echo -e "1. 权限问题: 请检查/usr/local/bin目录权限"
+    echo -e "2. 网络问题: 请检查网络连接和代理设置"
+    echo -e "3. 磁盘空间: 请检查磁盘空间是否充足"
+    echo -e ""
     echo -e "${YELLOW}建议手动安装:${NC}"
-    echo -e "1. 在有网络的机器上下载: https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-Linux-x86_64"
-    echo -e "2. 传输到服务器的 /usr/local/bin/docker-compose"
-    echo -e "3. 添加执行权限: chmod +x /usr/local/bin/docker-compose"
+    echo -e "1. 下载文件: wget https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-Linux-x86_64"
+    echo -e "2. 移动文件: mv docker-compose-Linux-x86_64 /usr/local/bin/docker-compose"
+    echo -e "3. 添加权限: chmod +x /usr/local/bin/docker-compose"
+    echo -e "4. 创建链接: ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose"
     echo -e ""
     echo -e "${BLUE}继续执行脚本...${NC}"
     
