@@ -1,0 +1,120 @@
+#!/bin/bash
+# Ubuntu Docker Deployment Script
+
+set -e
+
+# Color definitions
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Tag Closed Loop System - Ubuntu Docker Deploy Script${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+   echo -e "${RED}Error: Please run this script as root${NC}"
+   exit 1
+fi
+
+# Install Docker (Enhanced version with multiple installation methods)
+install_docker() {
+    echo -e "${YELLOW}Installing Docker...${NC}"
+    
+    # Network diagnostics
+    echo -e "${BLUE}Running network diagnostics...${NC}"
+    ping -c 2 www.baidu.com > /dev/null 2>&1 || echo -e "${YELLOW}Warning: Cannot access Baidu, network may have issues${NC}"
+    ping -c 2 mirrors.aliyun.com > /dev/null 2>&1 || echo -e "${YELLOW}Warning: Cannot access Alibaba Cloud mirror, will use backup sources${NC}"
+    
+    # Remove old versions
+    apt-get remove -y docker docker.io containerd runc 2>/dev/null || true
+    
+    # Install dependencies
+    echo -e "${BLUE}Installing necessary dependencies...${NC}"
+    apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
+    apt-get install -y -o Dpkg::Options::="--force-confold" \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        gnupg-agent \
+        software-properties-common \
+        wget \
+        net-tools \
+        iputils-ping
+    
+    # Method 1: Try using official script (with multiple mirror sources)
+    echo -e "${BLUE}Trying to use official installation script...${NC}"
+    DOCKER_INSTALL_SUCCESS=false
+    
+    # Try multiple mirror sources
+    for mirror in "Aliyun" "AzureChinaCloud" "TencentCloud"; do
+        echo -e "${BLUE}Trying $mirror mirror source...${NC}"
+        if curl -fsSL https://get.docker.com | bash -s docker --mirror $mirror; then
+            echo -e "${GREEN}Docker installed successfully!${NC}"
+            DOCKER_INSTALL_SUCCESS=true
+            break
+        else
+            echo -e "${YELLOW}$mirror mirror source failed, trying next...${NC}"
+            sleep 2
+        fi
+    done
+    
+    # Method 2: If method 1 fails, use apt direct installation
+    if [ "$DOCKER_INSTALL_SUCCESS" = false ]; then
+        echo -e "${YELLOW}All script installation methods failed, trying apt direct installation...${NC}"
+        
+        # Add Docker GPG key
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - 2>/dev/null || {
+            echo -e "${YELLOW}Cannot get official GPG key, using alternative method...${NC}"
+            apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 7EA0A9C3F273FCD8 2>/dev/null || true
+        }
+        
+        # Add Docker repository (using IPv4)
+        add-apt-repository -y \
+            "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) \
+            stable"
+        
+        # Install Docker
+        apt-get update -o Acquire::http::Timeout=30 -o Acquire::Retries=3
+        apt-get install -y -o Dpkg::Options::="--force-confold" docker-ce docker-ce-cli containerd.io
+        
+        if command -v docker &> /dev/null; then
+            DOCKER_INSTALL_SUCCESS=true
+            echo -e "${GREEN}Docker apt installation successful!${NC}"
+        fi
+    fi
+    
+    # Method 3: If all online installations fail, suggest offline installation
+    if [ "$DOCKER_INSTALL_SUCCESS" = false ]; then
+        echo -e "${RED}All online installation methods failed!${NC}"
+        echo -e "${YELLOW}Suggest using offline installation method:${NC}"
+        echo -e "1. Download Docker installation package on a machine with internet"
+        echo -e "2. Transfer to current server and install manually"
+        echo -e "3. Or use Docker official offline installation package"
+        echo -e ""
+        echo -e "${BLUE}Continuing to try configuring environment...${NC}"
+    fi
+    
+    # Configure Docker image acceleration (using multiple mirror sources)
+    echo -e "${BLUE}Configuring Docker image acceleration...${NC}"
+    mkdir -p /etc/docker
+    
+    # Configure multiple mirror sources to improve success rate
+    cat > /etc/docker/daemon.json << 'EOF'
+{
+  "registry-mirrors": [
+    "https://docker.mirrors.ustc.edu.cn",
+    "https://mirror.ccs.tencentyun.com",
+    "https://hub-mirror.c.163.com",
+    "https://reg-mirror.qiniu.com",
+    "https://registry.cn-hangzhou.aliyuncs.com",
+    "https://registry.cn-shanghai.aliyuncs.com",
+    "https://registry.cn-shenzhen.aliyuncs.com"
+  ],
+  "dns": ["8.8.8.8", "114.114.114.114"],
+  "ipv6": false
+}
