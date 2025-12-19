@@ -1,0 +1,143 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库服务
+  mysql:
+    image: mysql:8.0
+    container_name: feedback-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: feedback_db
+      MYSQL_USER: feedback_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rootpassword}
+    volumes:
+      - ./mysql/init:/docker-entrypoint-initdb.d
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - feedback_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # PostgreSQL 数据库服务（带 pgvector 扩展）
+  postgres:
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    container_name: feedback-postgres
+    environment:
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgrespassword}
+      POSTGRES_USER: postgres
+      POSTGRES_DB: feedback_vector
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - feedback_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # FastAPI API 服务
+  feedback-api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: feedback-api
+    environment:
+      - API_KEY=${API_KEY:-your_secure_api_key}
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=feedback_user
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=feedback_db
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8001:8000"
+    networks:
+      - feedback_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Python Worker 服务
+  feedback-worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: feedback-worker
+    environment:
+      - COZE_API_KEY=${COZE_API_KEY:-}
+      - COZE_APP_ID=${COZE_APP_ID:-}
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=feedback_user
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=feedback_db
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_USER=postgres
+      - PG_PASSWORD=${PG_PASSWORD:-postgrespassword}
+      - PG_DATABASE=feedback_vector
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - feedback_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  # Worker Cron 定时任务服务
+  feedback-worker-cron:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile.cron
+    container_name: feedback-worker-cron
+    environment:
+      - COZE_API_KEY=${COZE_API_KEY:-}
+      - COZE_APP_ID=${COZE_APP_ID:-}
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=feedback_user
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=feedback_db
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_USER=postgres
+      - PG_PASSWORD=${PG_PASSWORD:-postgrespassword}
+      - PG_DATABASE=feedback_vector
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - feedback_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+    driver: local
+  postgres_data:
+    driver: local
+
+networks:
+  feedback_network:
+    driver: bridge

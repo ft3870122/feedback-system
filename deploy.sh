@@ -23,12 +23,12 @@ if [ "$(id -u)" != "0" ]; then
    exit 1
 fi
 
-# 安装Docker
+# 安装Docker（支持国内网络）
 install_docker() {
     echo -e "${YELLOW}正在安装 Docker...${NC}"
     
     # 卸载旧版本
-    apt-get remove -y docker docker-engine docker.io containerd runc
+    apt-get remove -y docker docker.io containerd runc
     
     # 更新apt包索引
     apt-get update
@@ -41,39 +41,83 @@ install_docker() {
         gnupg-agent \
         software-properties-common
     
-    # 添加Docker官方GPG密钥
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+    # 优先使用阿里云安装脚本（国内网络优化）
+    echo -e "${BLUE}使用阿里云Docker安装脚本...${NC}"
+    if curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun; then
+        echo -e "${GREEN}Docker安装成功!${NC}"
+    else
+        echo -e "${YELLOW}阿里云脚本失败，尝试官方安装方式...${NC}"
+        
+        # 添加Docker官方GPG密钥
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+        
+        # 设置稳定版仓库
+        add-apt-repository \
+            "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) \
+            stable"
+        
+        # 安装Docker Engine
+        apt-get update
+        apt-get install -y docker-ce docker-ce-cli containerd.io
+    fi
     
-    # 设置稳定版仓库
-    add-apt-repository \
-        "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
-        $(lsb_release -cs) \
-        stable"
-    
-    # 安装Docker Engine
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io
+    # 配置阿里云Docker镜像加速
+    echo -e "${BLUE}配置阿里云Docker镜像加速...${NC}"
+    mkdir -p /etc/docker
+    cat > /etc/docker/daemon.json << 'EOF'
+{
+  "registry-mirrors": [
+    "https://registry.cn-hangzhou.aliyuncs.com",
+    "https://registry.cn-shanghai.aliyuncs.com",
+    "https://registry.cn-shenzhen.aliyuncs.com"
+  ]
+}
+EOF
     
     # 启动Docker
+    systemctl daemon-reload
     systemctl start docker
     systemctl enable docker
     
     echo -e "${GREEN}Docker 安装成功!${NC}"
     docker --version
+    
+    # 验证镜像加速配置
+    echo -e "${BLUE}Docker镜像加速配置:${NC}"
+    docker info | grep "Registry Mirrors" || echo -e "${YELLOW}镜像加速配置可能未生效${NC}"
 }
 
-# 安装Docker Compose
+# 安装Docker Compose（支持国内网络）
 install_docker_compose() {
     echo -e "${YELLOW}正在安装 Docker Compose...${NC}"
     
-    # 下载Docker Compose
-    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    # 尝试从GitHub下载（备用）
+    GITHUB_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)"
+    
+    # 优先从国内镜像下载
+    echo -e "${BLUE}尝试从国内镜像下载Docker Compose...${NC}"
+    if curl -L "https://mirrors.aliyun.com/docker-toolbox/linux/compose/$(curl -s https://mirrors.aliyun.com/docker-toolbox/linux/compose/LATEST)/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose; then
+        echo -e "${GREEN}从阿里云镜像下载成功!${NC}"
+    else
+        echo -e "${YELLOW}国内镜像下载失败，尝试GitHub下载...${NC}"
+        if curl -L "$GITHUB_URL" -o /usr/local/bin/docker-compose; then
+            echo -e "${GREEN}从GitHub下载成功!${NC}"
+        else
+            echo -e "${RED}Docker Compose下载失败!${NC}"
+            echo -e "${YELLOW}尝试使用pip安装...${NC}"
+            pip3 install docker-compose || {
+                echo -e "${RED}所有安装方式都失败了!${NC}"
+                exit 1
+            }
+        fi
+    fi
     
     # 添加执行权限
     chmod +x /usr/local/bin/docker-compose
     
     # 创建软链接
-    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
     
     echo -e "${GREEN}Docker Compose 安装成功!${NC}"
     docker-compose --version
@@ -128,23 +172,51 @@ configure_env() {
     echo -e "  COZE_APP_ID=your_coze_app_id"
 }
 
-# 构建并启动服务
+# 构建并启动服务（支持国内网络）
 start_services() {
     echo -e "${YELLOW}正在构建并启动服务...${NC}"
     
+    # 检查是否存在国内镜像版本的配置文件
+    if [ -f "docker-compose.aliyun.yml" ]; then
+        echo -e "${BLUE}检测到国内镜像版本配置文件，优先使用...${NC}"
+        COMPOSE_FILE="docker-compose.aliyun.yml"
+    else
+        echo -e "${BLUE}使用默认配置文件...${NC}"
+        COMPOSE_FILE="docker-compose.yml"
+    fi
+    
+    # 预拉取基础镜像（国内优化）
+    echo -e "${BLUE}预拉取基础Docker镜像...${NC}"
+    if [ "$COMPOSE_FILE" = "docker-compose.aliyun.yml" ]; then
+        # 从阿里云拉取镜像
+        docker pull registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0 2>/dev/null || echo -e "${YELLOW}MySQL镜像拉取失败，将在构建时拉取${NC}"
+        docker pull registry.cn-hangzhou.aliyuncs.com/library/postgres:15 2>/dev/null || echo -e "${YELLOW}PostgreSQL镜像拉取失败，将在构建时拉取${NC}"
+        docker pull registry.cn-hangzhou.aliyuncs.com/library/python:3.8-slim 2>/dev/null || echo -e "${YELLOW}Python镜像拉取失败，将在构建时拉取${NC}"
+    else
+        # 拉取默认镜像
+        docker pull mysql:8.0 2>/dev/null || echo -e "${YELLOW}MySQL镜像拉取失败，将在构建时拉取${NC}"
+        docker pull postgres:15 2>/dev/null || echo -e "${YELLOW}PostgreSQL镜像拉取失败，将在构建时拉取${NC}"
+        docker pull python:3.8-slim 2>/dev/null || echo -e "${YELLOW}Python镜像拉取失败，将在构建时拉取${NC}"
+    fi
+    
     # 构建镜像
     echo -e "${BLUE}正在构建 Docker 镜像...${NC}"
-    docker-compose build
+    echo -e "${YELLOW}注意：首次构建可能需要较长时间，请耐心等待...${NC}"
+    docker-compose -f "$COMPOSE_FILE" build
     
     # 启动服务
     echo -e "${BLUE}正在启动服务...${NC}"
-    docker-compose up -d
+    docker-compose -f "$COMPOSE_FILE" up -d
     
     echo -e "${GREEN}服务启动成功!${NC}"
     
     # 显示服务状态
     echo -e "${BLUE}服务状态:${NC}"
-    docker-compose ps
+    docker-compose -f "$COMPOSE_FILE" ps
+    
+    # 保存使用的配置文件信息
+    echo "$COMPOSE_FILE" > .compose_file_used
+    echo -e "${YELLOW}已使用配置文件: $COMPOSE_FILE${NC}"
 }
 
 # 显示访问信息

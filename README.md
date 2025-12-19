@@ -27,59 +27,241 @@
 - Docker 24.0.7+
 - Docker Compose 2.21.0+
 
-### 2. 部署步骤
+### 2. 详细执行步骤
 
 #### 2.1 连接服务器
 ```bash
-# 使用SSH连接服务器
-ssh root@你的服务器IP
+# 使用SSH连接服务器（请替换为实际IP）
+ssh root@8.148.202.136
 ```
 
-#### 2.2 克隆代码
+#### 2.2 系统环境准备
 ```bash
-# 安装Git
-apt update && apt install -y git
+# 更新系统包
+apt update && apt upgrade -y
 
+# 安装必要工具
+apt install -y wget curl vim git unzip
+```
+
+#### 2.3 国内网络环境优化（重要）
+
+**步骤1: 配置Docker阿里云镜像加速**
+```bash
+# 创建Docker配置目录
+mkdir -p /etc/docker
+
+# 配置阿里云Docker镜像加速器
+cat > /etc/docker/daemon.json << 'EOF'
+{
+  "registry-mirrors": [
+    "https://registry.cn-hangzhou.aliyuncs.com",
+    "https://registry.cn-shanghai.aliyuncs.com",
+    "https://registry.cn-shenzhen.aliyuncs.com"
+  ]
+}
+EOF
+
+# 重启Docker服务
+systemctl daemon-reload
+systemctl restart docker
+```
+
+**步骤2: 配置pip阿里云源**
+```bash
+# 创建pip配置目录
+mkdir -p ~/.pip
+
+# 配置pip阿里云源
+cat > ~/.pip/pip.conf << 'EOF'
+[global]
+index-url = https://mirrors.aliyun.com/pypi/simple/
+
+[install]
+trusted-host=mirrors.aliyun.com
+EOF
+```
+
+**步骤3: 配置apt阿里云源**
+```bash
+# 备份原有源文件
+cp /etc/apt/sources.list /etc/apt/sources.list.bak
+
+# 配置阿里云apt源
+cat > /etc/apt/sources.list << 'EOF'
+deb http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse
+deb-src http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse
+
+deb http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse
+
+deb http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse
+
+deb http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse
+
+deb http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse
+EOF
+
+# 更新apt缓存
+apt-get clean
+apt-get update
+```
+
+#### 2.4 克隆项目代码
+```bash
 # 克隆项目代码
 git clone https://github.com/your-repo/feedback-system.git
 cd feedback-system
 ```
 
-#### 2.3 一键部署
+#### 2.5 一键部署Docker环境
 ```bash
 # 给部署脚本添加执行权限
 chmod +x deploy.sh
 
-# 执行部署脚本
-./deploy.sh
+# 执行部署脚本（选择选项2仅安装Docker和Docker Compose）
+# 优化后的脚本会自动配置阿里云镜像加速
+echo "2" | ./deploy.sh
 ```
 
-**部署脚本功能**:
-- 📦 自动安装 Docker 和 Docker Compose
-- 📁 创建数据目录结构
-- ⚙️  配置环境变量（自动生成数据库密码）
-- 🏗️  构建 Docker 镜像
-- 🚀 启动所有服务
-- 📊 显示访问信息
+**等待Docker安装完成后，继续执行以下步骤**
 
-#### 2.4 配置 Coze API
+**注意：优化后的deploy.sh脚本已经包含以下功能：**
+- ✅ 自动配置阿里云Docker镜像加速
+- ✅ 支持多种Docker Compose安装方式
+- ✅ 自动检测并使用国内镜像配置文件
+- ✅ 预拉取基础Docker镜像
+- ✅ 更友好的错误处理和用户提示
 
-部署完成后，需要配置 Coze API 信息：
-
+#### 2.6 预拉取基础Docker镜像（国内优化）
 ```bash
+# 拉取MySQL镜像
+docker pull registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0
+docker tag registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0 mysql:8.0
+
+# 拉取PostgreSQL镜像
+docker pull registry.cn-hangzhou.aliyuncs.com/library/postgres:15
+docker tag registry.cn-hangzhou.aliyuncs.com/library/postgres:15 postgres:15
+
+# 拉取Python镜像
+docker pull registry.cn-hangzhou.aliyuncs.com/library/python:3.8-slim
+docker tag registry.cn-hangzhou.aliyuncs.com/library/python:3.8-slim python:3.8-slim
+```
+
+#### 2.7 创建国内镜像版本的Docker Compose配置
+```bash
+# 创建国内镜像版本的docker-compose文件
+cp docker-compose.offline.yml docker-compose.aliyun.yml
+
+# 使用sed命令批量替换镜像源
+sed -i 's|mysql:8.0|registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0|g' docker-compose.aliyun.yml
+sed -i 's|postgres:15|registry.cn-hangzhou.aliyuncs.com/library/postgres:15|g' docker-compose.aliyun.yml
+sed -i 's|python:3.8-slim|registry.cn-hangzhou.aliyuncs.com/library/python:3.8-slim|g' docker-compose.aliyun.yml
+
+# 查看修改后的配置文件
+grep "image:" docker-compose.aliyun.yml
+```
+
+#### 2.8 配置环境变量
+```bash
+# 复制环境变量示例文件
+cp .env.example .env
+
 # 编辑环境变量文件
-vi .env
+vim .env
+
+# 需要配置的关键参数：
+# MYSQL_PASSWORD=your_secure_password
+# PG_PASSWORD=your_secure_password  
+# COZE_API_KEY=your_coze_api_key
+# COZE_APP_ID=your_coze_app_id
+# API_KEY=your_secure_api_key
+```
+
+#### 2.9 阿里云安全组配置（重要）
+
+**登录阿里云控制台，配置以下安全组规则：**
+
+1. **公网访问规则（出行）**：
+   - 协议类型：TCP
+   - 端口范围：8001/8001
+   - 授权对象：0.0.0.0/0（或Coze服务器IP段）
+   - 描述：FastAPI API接口
+
+2. **VPC内部访问规则（入行）**：
+   - 协议类型：TCP
+   - 端口范围：3306/3306
+   - 授权对象：VPC网段（如172.16.0.0/12）
+   - 描述：MySQL数据库
+
+   - 协议类型：TCP
+   - 端口范围：5432/5432
+   - 授权对象：VPC网段（如172.16.0.0/12）
+   - 描述：PostgreSQL数据库
+
+#### 2.10 构建并启动服务
+```bash
+# 使用国内镜像版本构建服务
+docker-compose -f docker-compose.aliyun.yml build
+
+# 启动所有服务
+docker-compose -f docker-compose.aliyun.yml up -d
+
+# 查看服务启动状态
+docker-compose -f docker-compose.aliyun.yml ps
+```
+
+#### 2.11 配置Coze API
+```bash
+# 编辑环境变量文件配置Coze API信息
+vim .env
 
 # 修改以下配置
 COZE_API_KEY=你的Coze API Key
 COZE_APP_ID=你的Coze应用ID
+
+# 重启worker服务使配置生效
+docker-compose -f docker-compose.aliyun.yml restart feedback-worker
 ```
 
-#### 2.5 重启服务
+#### 2.12 验证部署结果
 ```bash
-# 重启服务使配置生效
-docker-compose restart
+# 检查服务状态
+docker-compose -f docker-compose.aliyun.yml ps
+
+# 查看API服务日志
+docker-compose -f docker-compose.aliyun.yml logs -f feedback-api
+
+# 测试API健康检查
+curl http://8.148.202.136:8001/health
+
+# 测试API统计接口
+curl http://8.148.202.136:8001/stats
 ```
+
+#### 2.13 执行初始标签闭环流程
+```bash
+# 进入worker容器
+docker exec -it feedback-worker bash
+
+# 执行完整标签闭环流程
+python run_all.py
+
+# 退出容器
+exit
+```
+
+#### 2.14 配置Coze Agent调用
+
+在Coze工作台配置HTTP工具：
+- **请求URL**: `http://8.148.202.136:8001/insert_feedback`
+- **请求方法**: POST
+- **请求头**: 
+  - `X-API-Key`: 查看.env文件中的API_KEY值
+- **请求体**: JSON格式的反馈数据列表
 
 ### 3. 验证部署
 

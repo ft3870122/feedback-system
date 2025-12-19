@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>标签闭环系统部署说明</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 40px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 2.5em;
+        }
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            margin-top: 40px;
+            font-size: 1.8em;
+        }
+        h3 {
+            color: #7f8c8d;
+            margin-top: 25px;
+            font-size: 1.4em;
+        }
+        p {
+            margin-bottom: 20px;
+            text-align: justify;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #856404;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #155724;
+        }
+        .code-block {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', Courier, monospace;
+            margin: 20px 0;
+        }
+        .architecture {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .architecture img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .steps {
+            counter-reset: step;
+            list-style-type: none;
+            padding: 0;
+        }
+        .steps li {
+            position: relative;
+            padding-left: 50px;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        .steps li:before {
+            content: counter(step);
+            counter-increment: step;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 36px;
+            height: 36px;
+            background: #3498db;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .note {
+            background-color: #e8f4fd;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏷️ 标签闭环系统部署说明</h1>
+        
+        <div class="warning">
+            <strong>⚠️ 重要提示：</strong>由于当前环境网络限制，无法直接安装Docker。请使用以下离线部署方案或在有网络连接的环境中部署。
+        </div>
+
+        <h2>📋 系统概述</h2>
+        <p>标签闭环系统是一个基于Docker的反馈数据智能标签管理平台，支持自动标签生成、向量聚类、批量打标和边缘样本迭代优化。系统采用微服务架构，包含API服务、Worker服务和数据库服务。</p>
+
+        <h2>🏗️ 系统架构</h2>
+        <div class="architecture">
+            <p><strong>系统组件关系图：</strong></p>
+            <div style="background-color: #f8f9fa; padding: 30px; border-radius: 8px; text-align: center;">
+                <div style="display: inline-block; text-align: left;">
+                    <div style="background-color: #3498db; color: white; padding: 10px 20px; border-radius: 4px; display: inline-block; margin: 5px;">📱 外部系统</div>
+                    <div style="text-align: center;">↓</div>
+                    <div style="background-color: #e74c3c; color: white; padding: 10px 20px; border-radius: 4px; display: inline-block; margin: 5px;">🔌 FastAPI API</div>
+                    <div style="text-align: center;">↓</div>
+                    <div style="display: flex; justify-content: center; gap: 20px;">
+                        <div style="background-color: #f39c12; color: white; padding: 10px 20px; border-radius: 4px; display: inline-block;">🗄️ MySQL</div>
+                        <div style="background-color: #9b59b6; color: white; padding: 10px 20px; border-radius: 4px; display: inline-block;">🔍 PostgreSQL<br>(pgvector)</div>
+                    </div>
+                    <div style="text-align: center;">↓</div>
+                    <div style="background-color: #2ecc71; color: white; padding: 10px 20px; border-radius: 4px; display: inline-block; margin: 5px;">⚙️ Python Worker</div>
+                    <div style="text-align: center;">↓</div>
+                    <div style="background-color: #34495e; color: white; padding: 10px 20px; border-radius: 4px; display: inline-block; margin: 5px;">🤖 Coze API</div>
+                </div>
+            </div>
+        </div>
+
+        <h2>🔧 离线部署方案</h2>
+        
+        <h3>📋 前提条件</h3>
+        <div class="note">
+            <p>在有网络连接的环境中准备以下组件：</p>
+            <ul>
+                <li>Docker 和 Docker Compose 已安装</li>
+                <li>项目代码已下载</li>
+                <li>基础 Docker 镜像已拉取</li>
+            </ul>
+        </div>
+
+        <h3>🚀 部署步骤</h3>
+        <ol class="steps">
+            <li>
+                <strong>准备基础镜像</strong>
+                <div class="code-block">
+# 在有网络的环境中拉取基础镜像<br>
+docker pull mysql:8.0<br>
+docker pull postgres:15<br>
+docker pull python:3.8-slim<br>
+<br>
+# 保存镜像为文件<br>
+docker save -o mysql-8.0.tar mysql:8.0<br>
+docker save -o postgres-15.tar postgres:15<br>
+docker save -o python-3.8-slim.tar python:3.8-slim<br>
+<br>
+# 将镜像文件复制到目标服务器并加载<br>
+docker load -i mysql-8.0.tar<br>
+docker load -i postgres-15.tar<br>
+docker load -i python-3.8-slim.tar
+                </div>
+            </li>
+            
+            <li>
+                <strong>配置环境变量</strong>
+                <div class="code-block">
+# 复制环境变量示例文件并配置<br>
+cp .env.example .env<br>
+<br>
+# 编辑 .env 文件，设置数据库密码和API密钥<br>
+# MYSQL_PASSWORD=your_secure_mysql_password<br>
+# PG_PASSWORD=your_secure_postgres_password<br>
+# API_KEY=your_secure_api_key_for_fastapi<br>
+# COZE_API_KEY=your_coze_api_key<br>
+# COZE_APP_ID=your_coze_app_id
+                </div>
+            </li>
+            
+            <li>
+                <strong>构建并启动服务</strong>
+                <div class="code-block">
+# 使用离线模式构建镜像<br>
+docker-compose -f docker-compose.offline.yml build --no-cache<br>
+<br>
+# 启动所有服务<br>
+docker-compose -f docker-compose.offline.yml up -d<br>
+<br>
+# 查看服务状态<br>
+docker-compose -f docker-compose.offline.yml ps
+                </div>
+            </li>
+        </ol>
+
+        <h2>🌐 在线部署方案</h2>
+        
+        <h3>📋 前提条件</h3>
+        <ul>
+            <li>Ubuntu 20.04+ 服务器</li>
+            <li>root 用户权限</li>
+            <li>稳定的网络连接</li>
+            <li>阿里云 VPC 网络环境</li>
+        </ul>
+        
+        <h4>🌐 网络端口配置要求</h4>
+        <div class="note">
+            <p><strong>公网访问（出行）：</strong></p>
+            <ul>
+                <li>8001/tcp - FastAPI API 接口（必须开放，供 Coze 公网调用）</li>
+            </ul>
+            <p><strong>VPC 内部访问（入行）：</strong></p>
+            <ul>
+                <li>3306/tcp - MySQL 数据库（仅 VPC 内部访问）</li>
+                <li>5432/tcp - PostgreSQL 数据库（仅 VPC 内部访问）</li>
+                <li>8001/tcp - FastAPI API 接口（VPC 内部也可访问）</li>
+            </ul>
+            <p><strong>安全组配置：</strong></p>
+            <ul>
+                <li>入方向：开放 8001 端口给 Coze 服务器 IP</li>
+                <li>入方向：开放 3306、5432 端口给 VPC 内部其他服务器</li>
+                <li>出方向：允许所有端口访问（或根据实际需求配置）</li>
+            </ul>
+        </div>
+
+        <h3>🚀 快速部署</h3>
+        <div class="code-block">
+# 给部署脚本添加执行权限<br>
+chmod +x deploy.sh<br>
+<br>
+# 运行部署脚本（选择完整安装）<br>
+./deploy.sh<br>
+<br>
+# 选择选项 1 进行完整安装
+        </div>
+        
+        <h3>🌐 国内网络优化配置</h3>
+        <div class="note">
+            <p><strong>为解决国内网络环境下的Docker镜像拉取和依赖安装问题，请执行以下优化步骤：</strong></p>
+        </div>
+        
+        <h4>1. 配置Docker阿里云镜像加速</h4>
+        <div class="code-block">
+# 创建Docker配置目录<br>
+mkdir -p /etc/docker<br>
+<br>
+# 配置阿里云Docker镜像加速器<br>
+cat > /etc/docker/daemon.json << 'EOF'<br>
+{<br>
+  "registry-mirrors": [<br>
+    "https://registry.cn-hangzhou.aliyuncs.com",<br>
+    "https://registry.cn-shanghai.aliyuncs.com",<br>
+    "https://registry.cn-shenzhen.aliyuncs.com"<br>
+  ]<br>
+}<br>
+EOF<br>
+<br>
+# 重启Docker服务<br>
+systemctl daemon-reload<br>
+systemctl restart docker<br>
+<br>
+# 验证配置是否生效<br>
+docker info | grep "Registry Mirrors"
+        </div>
+        
+        <h4>2. 配置pip阿里云源</h4>
+        <div class="code-block">
+# 创建pip配置目录<br>
+mkdir -p ~/.pip<br>
+<br>
+# 配置pip阿里云源<br>
+cat > ~/.pip/pip.conf << 'EOF'<br>
+[global]<br>
+index-url = https://mirrors.aliyun.com/pypi/simple/<br>
+<br>
+[install]<br>
+trusted-host=mirrors.aliyun.com<br>
+EOF<br>
+<br>
+# 验证pip源配置<br>
+pip config list
+        </div>
+        
+        <h4>3. 配置apt阿里云源（Ubuntu系统）</h4>
+        <div class="code-block">
+# 备份原有源文件<br>
+cp /etc/apt/sources.list /etc/apt/sources.list.bak<br>
+<br>
+# 配置阿里云apt源<br>
+cat > /etc/apt/sources.list << 'EOF'<br>
+deb http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse<br>
+deb-src http://mirrors.aliyun.com/ubuntu/ focal main restricted universe multiverse<br>
+<br>
+deb http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse<br>
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-security main restricted universe multiverse<br>
+<br>
+deb http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse<br>
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-updates main restricted universe multiverse<br>
+<br>
+deb http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse<br>
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-proposed main restricted universe multiverse<br>
+<br>
+deb http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse<br>
+deb-src http://mirrors.aliyun.com/ubuntu/ focal-backports main restricted universe multiverse<br>
+EOF<br>
+<br>
+# 更新apt缓存<br>
+apt-get clean<br>
+apt-get update
+        </div>
+        
+        <h4>4. 预拉取基础Docker镜像</h4>
+        <div class="code-block">
+# 拉取MySQL镜像<br>
+docker pull registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0<br>
+docker tag registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0 mysql:8.0<br>
+<br>
+# 拉取PostgreSQL镜像<br>
+docker pull registry.cn-hangzhou.aliyuncs.com/library/postgres:15<br>
+docker tag registry.cn-hangzhou.aliyuncs.com/library/postgres:15 postgres:15<br>
+<br>
+# 拉取Python镜像<br>
+docker pull registry.cn-hangzhou.aliyuncs.com/library/python:3.8-slim<br>
+docker tag registry.cn-hangzhou.aliyuncs.com/library/python:3.8-slim python:3.8-slim
+        </div>
+        
+        <h4>5. 修改Docker Compose配置使用国内镜像</h4>
+        <div class="code-block">
+# 创建国内镜像版本的docker-compose文件<br>
+cp docker-compose.offline.yml docker-compose.aliyun.yml<br>
+<br>
+# 使用sed命令批量替换镜像源（实际执行代码）<br>
+sed -i 's|mysql:8.0|registry.cn-hangzhou.aliyuncs.com/library/mysql:8.0|g' docker-compose.aliyun.yml<br>
+sed -i 's|postgres:15|registry.cn-hangzhou.aliyuncs.com/library/postgres:15|g' docker-compose.aliyun.yml<br>
+sed -i 's|python:3.8-slim|registry.cn-hangzhou.aliyuncs.com/library/python:3.8-slim|g' docker-compose.aliyun.yml<br>
+<br>
+# 查看修改后的配置文件<br>
+grep "image:" docker-compose.aliyun.yml<br>
+<br>
+# 使用国内镜像版本启动服务<br>
+docker-compose -f docker-compose.aliyun.yml up -d
+        </div>
+        
+        <h3>🔒 阿里云安全组配置步骤</h3>
+        <ol class="steps">
+            <li>
+                <strong>登录阿里云控制台</strong>
+                <p>访问 <a href="https://ecs.console.aliyun.com/" target="_blank">阿里云ECS控制台</a> 并登录您的账号</p>
+            </li>
+            <li>
+                <strong>找到目标ECS实例</strong>
+                <p>在实例列表中找到IP为 <code>8.148.202.136</code> 的ECS实例</p>
+            </li>
+            <li>
+                <strong>配置安全组规则</strong>
+                <div class="code-block">
+# 入方向规则配置<br>
+1. 协议类型：TCP<br>
+2. 端口范围：8001/8001<br>
+3. 授权对象：0.0.0.0/0（或Coze服务器IP段）<br>
+4. 描述：FastAPI API接口（公网访问）<br>
+<br>
+# VPC内部访问规则<br>
+1. 协议类型：TCP<br>
+2. 端口范围：3306/3306<br>
+3. 授权对象：VPC网段（如172.16.0.0/12）<br>
+4. 描述：MySQL数据库（VPC内部访问）<br>
+<br>
+1. 协议类型：TCP<br>
+2. 端口范围：5432/5432<br>
+3. 授权对象：VPC网段（如172.16.0.0/12）<br>
+4. 描述：PostgreSQL数据库（VPC内部访问）
+                </div>
+            </li>
+            <li>
+                <strong>应用安全组配置</strong>
+                <p>点击"确定"保存配置，等待配置生效</p>
+            </li>
+        </ol>
+
+        <h2>📊 服务组件说明</h2>
+        <table>
+            <tr>
+                <th>服务名称</th>
+                <th>容器名称</th>
+                <th>端口</th>
+                <th>实例信息</th>
+                <th>说明</th>
+            </tr>
+            <tr>
+                <td>MySQL</td>
+                <td>feedback-mysql</td>
+                <td>3306</td>
+                <td>实例ID: rm-7xv26nb6109rln469</td>
+                <td>存储原始反馈数据和标签结果</td>
+            </tr>
+            <tr>
+                <td>PostgreSQL</td>
+                <td>feedback-postgres</td>
+                <td>5432</td>
+                <td>实例ID: pgm-7xvwb5g00mgfsv56</td>
+                <td>存储向量数据和标签聚类</td>
+            </tr>
+            <tr>
+                <td>FastAPI API</td>
+                <td>feedback-api</td>
+                <td>8001</td>
+                <td>ECS IP: 8.148.202.136</td>
+                <td>提供数据插入和查询接口</td>
+            </tr>
+            <tr>
+                <td>Python Worker</td>
+                <td>feedback-worker</td>
+                <td>-</td>
+                <td>ECS IP: 8.148.202.136</td>
+                <td>执行标签生成和匹配任务</td>
+            </tr>
+            <tr>
+                <td>Worker Cron</td>
+                <td>feedback-worker-cron</td>
+                <td>-</td>
+                <td>ECS IP: 8.148.202.136</td>
+                <td>定时执行标签闭环流程</td>
+            </tr>
+        </table>
+        
+        <div class="note">
+            <p><strong>重要提示：</strong></p>
+            <ul>
+                <li>MySQL实例 (rm-7xv26nb6109rln469) 和 PostgreSQL实例 (pgm-7xvwb5g00mgfsv56) 已存在于VPC网络中</li>
+                <li>本部署方案将在ECS服务器 (8.148.202.136) 上运行Docker容器，连接到现有数据库实例</li>
+                <li>请确保ECS服务器与数据库实例在同一VPC网络中，并且已配置正确的安全组规则</li>
+            </ul>
+        </div>
+
+        <h2>🔗 API 接口说明</h2>
+        
+        <h3>📥 数据插入接口</h3>
+        <div class="code-block">
+POST http://服务器IP:8001/insert_feedback<br>
+<br>
+Headers:<br>
+X-API-Key: your_api_key<br>
+Content-Type: application/json<br>
+<br>
+Body:<br>
+{
+    "feedback_list": [
+        {
+            "product": "产品A",
+            "content": "这是一条反馈内容",
+            "channel": "app",
+            "create_time": "2024-01-01 12:00:00"
+        }
+    ]
+}
+        </div>
+
+        <h3>🔍 健康检查接口</h3>
+        <div class="code-block">
+GET http://服务器IP:8001/health<br>
+<br>
+Response:<br>
+{
+    "status": "healthy",
+    "service": "feedback-api",
+    "timestamp": "2024-01-01T12:00:00"
+}
+        </div>
+
+        <h3>📈 统计信息接口</h3>
+        <div class="code-block">
+GET http://服务器IP:8001/stats<br>
+<br>
+Response:<br>
+{
+    "total_records": 1000,
+    "today_records": 100,
+    "status_distribution": {
+        "0": 500,
+        "1": 450,
+        "2": 50
+    }
+}
+        </div>
+
+        <h2>📝 使用说明</h2>
+        
+        <h3>🎯 标签闭环流程</h3>
+        <ol class="steps">
+            <li><strong>数据收集</strong>：通过 API 接口插入反馈数据</li>
+            <li><strong>分层抽样</strong>：系统自动对数据进行分层抽样</li>
+            <li><strong>标签生成</strong>：调用 Coze API 生成初始标签</li>
+            <li><strong>向量聚类</strong>：对标签向量进行聚类优化</li>
+            <li><strong>批量打标</strong>：为所有数据匹配最相似的标签</li>
+            <li><strong>边缘优化</strong>：对难匹配样本进行迭代优化</li>
+        </ol>
+
+        <h3>🔧 手动执行任务</h3>
+        <div class="code-block">
+# 进入 worker 容器<br>
+docker exec -it feedback-worker bash<br>
+<br>
+# 执行完整标签闭环流程<br>
+python run_all.py<br>
+<br>
+# 执行特定步骤<br>
+python run_all.py --step 1  # 仅执行分层抽样<br>
+python run_all.py --step 2  # 仅执行标签生成<br>
+python run_all.py --step 3  # 仅执行标签聚类<br>
+python run_all.py --step 4  # 仅执行批量打标<br>
+python run_all.py --step 5  # 仅执行边缘样本更新
+        </div>
+
+        <h2>📊 日志管理</h2>
+        <div class="code-block">
+# 查看 API 服务日志<br>
+docker-compose logs -f feedback-api<br>
+<br>
+# 查看 Worker 服务日志<br>
+docker-compose logs -f feedback-worker<br>
+<br>
+# 查看日志文件<br>
+ls -la ./logs/<br>
+tail -f ./logs/feedback-api.log<br>
+tail -f ./logs/worker.log
+        </div>
+
+        <h2>🔧 常见问题排查</h2>
+        
+        <h3>🚫 服务启动失败</h3>
+        <div class="note">
+            <p><strong>检查步骤：</strong></p>
+            <ol>
+                <li>查看容器日志：<code>docker-compose logs 服务名称</code></li>
+                <li>检查端口占用：<code>netstat -tlnp | grep 端口号</code></li>
+                <li>检查环境变量：<code>cat .env</code></li>
+                <li>重启服务：<code>docker-compose restart 服务名称</code></li>
+            </ol>
+        </div>
+
+        <h3>🌐 API 接口无法访问</h3>
+        <div class="note">
+            <p><strong>排查步骤：</strong></p>
+            <ol>
+                <li>检查 API 服务状态：<code>docker-compose ps feedback-api</code></li>
+                <li>检查防火墙设置：<code>ufw status</code></li>
+                <li>测试本地访问：<code>curl http://localhost:8001/health</code></li>
+                <li>检查 API 密钥：确认请求头中的 X-API-Key 是否正确</li>
+            </ol>
+        </div>
+
+        <h3>💾 数据库连接问题</h3>
+        <div class="note">
+            <p><strong>排查步骤：</strong></p>
+            <ol>
+                <li>检查数据库服务状态</li>
+                <li>验证数据库凭证</li>
+                <li>测试数据库连接</li>
+                <li>检查网络配置</li>
+            </ol>
+        </div>
+
+        <h2>📈 性能优化建议</h2>
+        <ul>
+            <li><strong>数据库优化</strong>：定期清理过期数据，创建合适的索引</li>
+            <li><strong>资源配置</strong>：根据数据量调整容器内存和CPU限制</li>
+            <li><strong>批量处理</strong>：大批量数据插入时使用批量接口</li>
+            <li><strong>定时任务</strong>：调整 cron 任务执行频率，避开业务高峰期</li>
+        </ul>
+
+        <div class="success">
+            <strong>🎉 部署完成！</strong><br>
+            系统部署成功后，可以通过以下地址访问：<br>
+            - API 接口：http://服务器IP:8001<br>
+            - 健康检查：http://服务器IP:8001/health<br>
+            - 统计信息：http://服务器IP:8001/stats<br>
+            <br>
+            请确保在阿里云安全组中开放了相应的端口，并配置了正确的 API 密钥。
+        </div>
+    </div>
+</body>
+</html>
